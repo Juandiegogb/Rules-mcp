@@ -1,20 +1,14 @@
+# Instrucciones
+
 ```
-"mcpServers": {
-    "rules": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "/path/to/server",
-        "run",
-        "rules.py"
-      ],
-      "env": {
-        "DB_USER": "postgres",
-        "DB_HOST": "localhost",
-        "DB_PASSWORD": "Admin",
-        "DB_PORT": "5500",
-        "DB_NAME": "new_db"
-      }
-    }
-  }
+  # Crear entorno virtual e instalar dependencias:
+  uv sync
+
+  # Crear .env con credenciales a una base de datos antigua 
+
+  cp .env.example .env
+
+  # Correr script
+  python main.py
+
 ```
