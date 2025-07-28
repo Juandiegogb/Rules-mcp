@@ -49,23 +49,73 @@ def get_new_field_names():
         return "Error: No se pudo obtener la información de la base de datos."
 
 
-@mcp.resource("info://dev-name")
-def get_dev_name() -> str:
-    return "el desarrollador se llama Juan Diego"
+@mcp.resource("tables://database-tables")
+def get_table_names():
+    """Retorna una lista de nombres de tablas de la base de datos en el formato
+    schema.table, excluyendo esquemas públicos y de sistema.
+
+    Returns:
+        List: una lista con los nombres de las tablas de la base de datos
+    """
+    try:
+        with connect(PG_URI) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        TABLE_SCHEMA || '.' || TABLE_NAME as table_name
+                    FROM INFORMATION_SCHEMA.TABLES
+                    WHERE
+                        TABLE_SCHEMA NOT IN ('public', 'pg_catalog', 'information_schema')
+                    ORDER BY TABLE_SCHEMA, TABLE_NAME;
+                    """
+                )
+                result = [table_name for (table_name,) in cursor.fetchall()]
+                return result
+    except Exception as e:
+        logger.error(
+            f"Error al conectar o consultar las tablas de la base de datos: {e}"
+        )
+        return "Error: No se pudo obtener la información de las tablas."
 
 
-@mcp.tool("get_users")
-def get_users():
-    "Esta tools retorna los usuarios de la base de datos"
+@mcp.tool(
+    "query", description="Esta tool permite hacer read-only queries a la base de datos"
+)
+def execute_query(query: str) -> list[tuple]:
+    with connect(PG_URI) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("BEGIN READ ONLY;")
+            cursor.execute(query)
+            return cursor.fetchall()
+
+
+@mcp.prompt(
+    "Estructura de corrección de reglas",
+    description="Este prompt permite optener contexto de como se espera que se modifiquen las reglas de javascript",
+)
+def rules_prompt():
+    with open("rules_prompt.md", "r") as file:
+        return file.read()
+
+
+@mcp.tool("update_rule")
+def update_rule(rule_id: str, rule_content):
+    """
+    Esta tool permite actualizar el contenido de una regla despues de la revisión del LLM
+
+    Args:
+
+        rule_id: UUID de la regla que se va a actualizar
+        rule_content: Regla revisada y con los cambios realizados por el LLM
+    """
     with connect(PG_URI) as conn:
         with conn.cursor() as cursor:
             cursor.execute(
-                """
-                    Select * from users.user;
-                    """
+                "update test.old_rules set new_rule = %s , checked = True , updated_at = now() where id = %s;",
+                (rule_content, rule_id),
             )
-            result = cursor.fetchall()
-            return result
+        conn.commit()
 
 
 if __name__ == "__main__":
