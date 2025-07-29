@@ -3,7 +3,7 @@ from mcp.server import FastMCP
 from dotenv import load_dotenv
 from os import getenv
 import logging
-
+from typing import Dict, List, Tuple, Any
 
 load_dotenv()
 
@@ -22,81 +22,63 @@ logger = logging.getLogger(__name__)
 
 
 @mcp.resource("fields://database-fields")
-def get_new_field_names():
-    """Retorna una lista de nombres de campos de la base de datos en el formato
-    schema__table__column, excluyendo esquemas públicos y de sistema.
+def get_new_field_names() -> Dict[str, Dict[str, List[str]]]:
+    """
+    Este resource retorna un diccionario con los schemas, tablas y columnas presentes
+    en la base de datos.
 
     Returns:
-        List: una lista con los nombres de los campos de la base de datos
+        Dict[str, Dict[str, List[str]]]: Diccionario con la estructura:
+            {
+                "schema": {
+                    "table": ["column1", "column2", ...],
+                    ...
+                },
+                ...
+            }
     """
     try:
         with connect(PG_URI) as conn:
             with conn.cursor() as cursor:
-                cursor.execute(
-                    """
+                query = """
                     SELECT
-                        TABLE_SCHEMA || '__' || TABLE_NAME || '__' || COLUMN_NAME as field_name
-                    FROM INFORMATION_SCHEMA.COLUMNS C
-                    WHERE
-                        TABLE_SCHEMA NOT IN ( 'public', 'pg_catalog', 'information_schema' )
-                    order by TABLE_SCHEMA;
-                    """
-                )
-                result = [field_name for (field_name,) in cursor.fetchall()]
-                return result
+                        table_schema, table_name, column_name 
+                    FROM information_schema.columns
+                    WHERE table_schema NOT IN ('public', 'pg_catalog', 'information_schema');
+                """
+                cursor.execute(query)
+                result = cursor.fetchall()
+
+                data = {}
+                for schema, table, column in result:
+                    if schema not in data:
+                        data[schema] = {}
+                    if table not in data[schema]:
+                        data[schema][table] = []
+                    data[schema][table].append(column)
+                return data
     except Exception as e:
         logger.error(f"Error al conectar o consultar la base de datos: {e}")
         return "Error: No se pudo obtener la información de la base de datos."
 
 
-@mcp.resource("tables://database-tables")
-def get_table_names():
-    """Retorna una lista de nombres de tablas de la base de datos en el formato
-    schema.table, excluyendo esquemas públicos y de sistema.
+@mcp.tool("query")
+def execute_query(query: str) -> List[Tuple[Any,...]]:
+    """
+    Esta tool permite realizar queries a la base de datos tomando como contexto
+    los schemas, tablas y campos del recurso respectivo.
+
+    Args:
+        query: Query que se desea ejecutar en la DB
 
     Returns:
-        List: una lista con los nombres de las tablas de la base de datos
+        List[Tuple[Any]]
+
     """
-    try:
-        with connect(PG_URI) as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT
-                        TABLE_SCHEMA || '.' || TABLE_NAME as table_name
-                    FROM INFORMATION_SCHEMA.TABLES
-                    WHERE
-                        TABLE_SCHEMA NOT IN ('public', 'pg_catalog', 'information_schema')
-                    ORDER BY TABLE_SCHEMA, TABLE_NAME;
-                    """
-                )
-                result = [table_name for (table_name,) in cursor.fetchall()]
-                return result
-    except Exception as e:
-        logger.error(
-            f"Error al conectar o consultar las tablas de la base de datos: {e}"
-        )
-        return "Error: No se pudo obtener la información de las tablas."
-
-
-@mcp.tool(
-    "query", description="Esta tool permite hacer read-only queries a la base de datos"
-)
-def execute_query(query: str) -> list[tuple]:
     with connect(PG_URI) as conn:
         with conn.cursor() as cursor:
-            cursor.execute("BEGIN READ ONLY;")
             cursor.execute(query)
             return cursor.fetchall()
-
-
-@mcp.prompt(
-    "Estructura de corrección de reglas",
-    description="Este prompt permite optener contexto de como se espera que se modifiquen las reglas de javascript",
-)
-def rules_prompt():
-    with open("rules_prompt.md", "r") as file:
-        return file.read()
 
 
 @mcp.tool("update_rule")
